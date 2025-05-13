@@ -1,0 +1,68 @@
+pipeline {
+    agent any
+
+    environment{
+ 
+        GIT_REPO='https://github.com/jAnushka26/jenkins-pipeline-demo'
+        git_credentialsId = "github-creds"
+        BRANCH='main'
+ 
+    }
+ 
+    environment {
+        AWS_DEFAULT_REGION = 'us-east-1'   // Set your region
+        S3_BUCKET = 'demo-bucket'  // Replace with your bucket name
+        EC2_USER = 'ec2-user'
+        // PEM_FILE = 'C:/Users/AAJITJAD/Downloads/demo-key-pair.pem'  // Replace with the path to your .pem key
+        NODE_APP_PATH = '/home/ec2-user/node_app'  // Path to deploy Node app
+        GIT_REPO='https://github.com/jAnushka26/jenkins-pipeline-demo'
+        PUBLIC_IP = ''  // Will be filled dynamically
+    }
+ 
+    stages {
+        stage('Terraform Init') {
+            steps {
+                script {
+                    sh 'terraform init'
+                }
+            }
+        }
+ 
+        stage('Terraform Apply') {
+            steps {
+                script {
+                    sh 'terraform apply -auto-approve'
+                    PUBLIC_IP = sh(script: "terraform output -raw public_ip", returnStdout: true).trim()
+                    echo "EC2 Public IP: ${PUBLIC_IP}"
+                }
+            }
+        }
+ 
+        stage('Deploy Node.js App') {
+            steps {
+                script {
+                    // Connect to EC2 and clone GitHub repository
+                    sh """
+                    ssh -i ${PEM_FILE} -o StrictHostKeyChecking=no ${EC2_USER}@${PUBLIC_IP} << EOF
+                        sudo yum update -y
+                        sudo yum install -y git
+                        git clone ${GITHUB_REPO} ${NODE_APP_PATH}
+                        cd ${NODE_APP_PATH}
+                        npm install
+                        nohup node app.js > app.log 2>&1 &
+                    EOF
+                    """
+                }
+            }
+        }
+    }
+ 
+    post {
+        success {
+            echo "Deployment Successful! Node.js app is running at ${PUBLIC_IP}"
+        }
+        failure {
+            echo "Deployment Failed!"
+        }
+    }
+}
